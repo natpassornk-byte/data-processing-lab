@@ -1,135 +1,118 @@
 import csv, os
-
-__location__ = os.path.realpath(
-    os.path.join(os.getcwd(), os.path.dirname(__file__)))
+from pathlib import Path
 
 
-def filter_items(condition, dict_list):
-    """
-    Return a new list containing only the dictionaries that satisfy
-    the given condition function.
+class DataLoader:
+    """Handles loading CSV data files."""
 
-    Args:
-        condition: A function that takes a dictionary and returns True or False.
-        dict_list: A list of dictionaries.
+    def __init__(self, base_path=None):
+        """Initialize the DataLoader with a base path for data files.
+        """
+        if base_path is None:
+            self.base_path = Path(__file__).parent.resolve()
+        else:
+            self.base_path = Path(base_path)
 
-    Returns:
-        A list of dictionaries for which condition(item) is True.
+    def load_csv(self, filename):
+        """Load a CSV file and return its contents as a list of dictionaries.
+        """
+        filepath = self.base_path / filename
+        data = []
 
-    Examples:
-        >>> students = [
-        ...     {"name": "Alice", "score": 90},
-        ...     {"name": "Bob", "score": 70},
-        ...     {"name": "Charlie", "score": 85}
-        ... ]
-        >>> filter_items(lambda s: s["score"] >= 85, students)
-        [{'name': 'Alice', 'score': 90}, {'name': 'Charlie', 'score': 85}]
+        with filepath.open() as f:
+            rows = csv.DictReader(f)
+            for row in rows:
+                data.append(dict(row))
 
-        >>> filter_items(lambda s: s["name"].startswith("A"), students)
-        [{'name': 'Alice', 'score': 90}]
-
-        >>> filter_items(lambda s: s["score"] > 100, students)
-        []
-    """
-    return [item for item in dict_list if condition(item)]
+        return data
 
 
-def aggregate(aggregation_key, aggregation_function, dict_list):
-    """
-    Aggregate values associated with aggregation_key using the
-    provided aggregation function.
+class Table:
+    """A table with a name and a list of rows (each row is a dictionary)."""
 
-    Args:
-        aggregation_key: The dictionary key whose values should be aggregated.
-        aggregation_function: A function such as sum, max, min, etc.
-        dict_list: A list of dictionaries.
+    def __init__(self, table_name, table):
+        """Create a table.
 
-    Returns:
-        The aggregated result.
+        Args:
+            table_name: Name of the table, e.g. 'cities'.
+            table: A list of dictionaries, one dictionary per row.
+        """
+        self.table_name = table_name
+        self.table = table
 
-    Examples:
-        >>> students = [
-        ...     {"name": "Alice", "score": 90},
-        ...     {"name": "Bob", "score": 70},
-        ...     {"name": "Charlie", "score": 85}
-        ... ]
+    def filter(self, condition):
+        """Return a new Table that keeps only the rows where condition(row) is True.
 
-        >>> aggregate("score", sum, students)
-        245
+        Args:
+            condition: A function that takes a row (dictionary) and returns True/False.
+        """
+        filtered_table = []
+        for item in self.table:
+            if condition(item):
+                filtered_table.append(item)
+        return Table(self.table_name + '_filtered', filtered_table)
 
-        >>> aggregate("score", max, students)
-        90
+    def aggregate(self, aggregation_function, aggregation_key):
+        """Apply aggregation_function to all the values in one column.
 
-        >>> aggregate("score", min, students)
-        70
+        Values that look like numbers are converted to float; other values
+        (e.g. country names) are kept as text.
 
-        >>> aggregate(
-        ...     "score",
-        ...     lambda scores: sum(scores) / len(scores),
-        ...     students
-        ... )
-        81.66666666666667
-    """
-    values = [item[aggregation_key] for item in dict_list]
-    return aggregation_function(values)
+        Args:
+            aggregation_function: A function that takes a list, e.g. max, min, len.
+            aggregation_key: The column (dictionary key) to aggregate.
+        """
+        values = []
+        for item in self.table:
+            try:
+                values.append(float(item[aggregation_key]))
+            except ValueError:
+                values.append(item[aggregation_key])
+        return aggregation_function(values)
+
+    def __str__(self):
+        return self.table_name + ':' + str(self.table)
 
 
-def average(values):
-    return sum(values) / len(values)
-
-
-# Load the data
-cities = []
-with open(os.path.join(__location__, 'Cities.csv')) as f:
-    rows = csv.DictReader(f)
-    for r in rows:
-        cities.append(dict(r))
-
-# Convert temperature from text to number once
-for city in cities:
-    city['temperature'] = float(city['temperature'])
-
-# Print first 5 cities only
-for city in cities[:5]:
-    print(city)
-print()
+loader = DataLoader()
+cities = loader.load_csv('Cities.csv')
+my_table1 = Table('cities', cities)
 
 # Print the average temperature of all the cities
-print("The average temperature of all the cities:")
-print(aggregate('temperature', average, cities))
+my_value = my_table1.aggregate(lambda x: sum(x)/len(x), 'temperature')
+print(my_value)
 print()
 
 # Print all cities in Germany
-print("All cities in Germany:")
-germany = filter_items(lambda c: c['country'] == 'Germany', cities)
-for c in germany:
-    print(c['city'])
+my_cities = my_table1.filter(lambda x: x['country'] == 'Germany')
+cities_list = [[city['city'], city['country']] for city in my_cities.table]
+print("All the cities in Germany:")
+for city in cities_list:
+    print(city)
 print()
 
 # Print all cities in Spain with a temperature above 12°C
-print("Cities in Spain with temperature above 12°C:")
-spain_warm = filter_items(
-    lambda c: c['country'] == 'Spain' and c['temperature'] > 12, cities)
-for c in spain_warm:
-    print(c['city'])
+my_cities = my_table1.filter(lambda x: x['country'] == 'Spain' and float(x['temperature']) > 12.0)
+cities_list = [[city['city'], city['country'], city['temperature']] for city in my_cities.table]
+print("All the cities in Spain with temperature above 12°C:")
+for city in cities_list:
+    print(city)
 print()
 
 # Count the number of unique countries
-print("Number of unique countries:")
-print(len(set(aggregate('country', list, cities))))
+my_countries = my_table1.aggregate(lambda x: len(set(x)), 'country')
+print("The number of unique countries is:")
+print(my_countries)
 print()
 
 # Print the average temperature for all the cities in Germany
-print("Average temperature in Germany:")
-print(aggregate('temperature', average, germany))
+my_value = my_table1.filter(lambda x: x['country'] == 'Germany').aggregate(lambda x: sum(x)/len(x), 'temperature')
+print("The average temperature of all the cities in Germany:")
+print(my_value)
 print()
 
 # Print the max temperature for all the cities in Italy
-print("Max temperature in Italy:")
-italy = filter_items(lambda c: c['country'] == 'Italy', cities)
-print(aggregate('temperature', max, italy))
-
-
-if __name__ == "__main__":
-    import doctest
-    doctest.testmod()
+my_value = my_table1.filter(lambda x: x['country'] == 'Italy').aggregate(lambda x: max(x), 'temperature')
+print("The max temperature of all the cities in Italy:")
+print(my_value)
+print()
